@@ -1,0 +1,5 @@
+﻿First paragraph starts here and contains several words.
+It continues in the next line.
+
+Second paragraph starts here.
+Another sentence follows.

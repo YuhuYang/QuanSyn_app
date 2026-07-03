@@ -1,0 +1,4 @@
+﻿_
+...
+NOUN VERB ADJ ADV
+A-B-C tokens with hyphen-like forms should be preserved.

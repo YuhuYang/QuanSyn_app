@@ -1,0 +1,2 @@
+"""QuanSyn desktop UI package."""
+

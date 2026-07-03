@@ -1,0 +1,1 @@
+﻿This is a relatively long sentence for parser stress testing where multiple clauses appear, because we want to observe whether punctuation and subordinate relations are handled in a stable way across modules.

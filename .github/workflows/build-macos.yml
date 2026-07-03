@@ -1,0 +1,144 @@
+name: Build macOS
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-15
+          - name: macos-intel
+            runner: macos-15-intel
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements-desktop.txt
+
+      - name: Restore Nuitka cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Nuitka
+            ~/Library/Caches/ccache
+          key: ${{ runner.os }}-${{ matrix.name }}-nuitka-${{ hashFiles('requirements-desktop.txt', 'run_desktop.py', 'quansyn_desktop/**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.name }}-nuitka-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install -U nuitka ordered-set zstandard wheel setuptools
+          grep -Ev '^(spacy|stanza)([<>= ].*)?$' requirements-desktop.txt > requirements-macos-main.txt
+          python -m pip install -r requirements-macos-main.txt
+
+      - name: Build app bundle
+        run: |
+          python -m nuitka run_desktop.py \
+            --standalone \
+            --macos-create-app-bundle \
+            --enable-plugin=pyqt6 \
+            --follow-imports \
+            --include-data-dir=quansyn_desktop/assets=quansyn_desktop/assets \
+            --include-package-data=qtawesome \
+            --include-package-data=emoji \
+            --include-package=networkit \
+            --include-package=networkit.gephi \
+            --include-package=networkit.profiling \
+            --include-package=sklearn \
+            --include-package=joblib \
+            --include-package=threadpoolctl \
+            --include-package=tqdm \
+            --include-package=google.protobuf \
+            --include-package=packaging \
+            --include-module=pdb \
+            --include-module=site \
+            --include-module=cProfile \
+            --include-module=profile \
+            --include-module=pstats \
+            --include-package=http \
+            --include-package=html \
+            --include-package=xml \
+            --include-package=email \
+            --include-package=urllib \
+            --include-package=multiprocessing \
+            --include-package=concurrent \
+            --include-package=sqlite3 \
+            --nofollow-import-to=spacy \
+            --nofollow-import-to=stanza \
+            --nofollow-import-to=torch \
+            --nofollow-import-to=spacy_pkuseg \
+            --nofollow-import-to=pingouin \
+            --nofollow-import-to=statsmodels \
+            --nofollow-import-to=sympy \
+            --nofollow-import-to=mpmath \
+            --nofollow-import-to=xarray \
+            --nofollow-import-to=seaborn \
+            --nofollow-import-to=patsy \
+            --no-deployment-flag=excluded-module-usage \
+            --output-dir=dist \
+            --output-filename="QuanSyn Studio" \
+            --remove-output \
+            --assume-yes-for-downloads \
+            --lto=no \
+            --jobs=4
+
+      - name: Locate app bundle
+        id: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(find dist -maxdepth 3 -name '*.app' -type d | head -n 1)"
+          if [[ -z "${app_path}" ]]; then
+            echo "No .app bundle found under dist"
+            find dist -maxdepth 4 -print
+            exit 1
+          fi
+          exe_path="$(find "${app_path}/Contents/MacOS" -maxdepth 1 -type f | head -n 1)"
+          if [[ -z "${exe_path}" ]]; then
+            echo "No executable found in ${app_path}/Contents/MacOS"
+            find "${app_path}" -maxdepth 4 -print
+            exit 1
+          fi
+          echo "app_path=${app_path}" >> "$GITHUB_OUTPUT"
+          echo "exe_path=${exe_path}" >> "$GITHUB_OUTPUT"
+          echo "Found app: ${app_path}"
+          echo "Found exe: ${exe_path}"
+
+      - name: Run dependency selftests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export QTWEBENGINE_DISABLE_SANDBOX=1
+          QUANSYN_SELFTEST=networkit "${{ steps.app.outputs.exe_path }}"
+          QUANSYN_SELFTEST=sklearn "${{ steps.app.outputs.exe_path }}"
+          cat "$(dirname "${{ steps.app.outputs.exe_path }}")/selftest.log" || true
+
+      - name: Package app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent "${{ steps.app.outputs.app_path }}" "artifacts/QuanSyn-Studio-${{ matrix.name }}.zip"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuanSyn-Studio-${{ matrix.name }}
+          path: artifacts/QuanSyn-Studio-${{ matrix.name }}.zip
+          if-no-files-found: error

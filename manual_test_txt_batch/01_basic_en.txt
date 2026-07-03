@@ -1,0 +1,2 @@
+﻿I used QuanSyn for quantitative syntactic analysis.
+This toolkit supports parsing, metrics, and visualization.
