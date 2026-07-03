@@ -3,12 +3,17 @@ name: Build macOS
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
-  build:
-    name: ${{ matrix.name }}
+  build-app:
+    name: app-${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -130,6 +135,25 @@ jobs:
             nuitka-crash-report.xml
           if-no-files-found: ignore
 
+      - name: Upload build logs to release on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts build-log-upload
+          for f in build.log build-env.log nuitka-crash-report.xml; do
+            if [[ -f "$f" ]]; then
+              cp "$f" build-log-upload/
+            fi
+          done
+          if [[ ! -f build-log-upload/build.log ]]; then
+            echo "No build.log was produced." > build-log-upload/build.log
+          fi
+          (cd build-log-upload && zip -r "../artifacts/Nuitka-build-logs-${{ matrix.name }}-${{ github.run_id }}.zip" .)
+          gh release view v0.0.1 >/dev/null 2>&1 || gh release create v0.0.1 --title "qsstudio0.0.1" --notes "QuanSyn Studio 0.0.1"
+          gh release upload v0.0.1 "artifacts/Nuitka-build-logs-${{ matrix.name }}-${{ github.run_id }}.zip" --clobber
+
       - name: Locate app bundle
         id: app
         shell: bash
@@ -174,3 +198,88 @@ jobs:
           name: QuanSyn-Studio-${{ matrix.name }}
           path: artifacts/QuanSyn-Studio-${{ matrix.name }}.zip
           if-no-files-found: error
+
+      - name: Upload app to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v0.0.1 >/dev/null 2>&1 || gh release create v0.0.1 --title "qsstudio0.0.1" --notes "QuanSyn Studio 0.0.1"
+          gh release upload v0.0.1 "artifacts/QuanSyn-Studio-${{ matrix.name }}.zip" --clobber
+
+  build-parser-runtime:
+    name: parser-runtime-${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash -el {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-15
+          - name: macos-intel
+            runner: macos-15-intel
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Build parser runtime plugin
+        run: |
+          set -euo pipefail
+          python -m pip install -U pip wheel setuptools
+          rm -rf plugin
+          mkdir -p plugin/parser_runtime/site-packages
+          python -m pip install \
+            --target plugin/parser_runtime/site-packages \
+            "spacy>=3.8" \
+            "stanza>=1.11" \
+            "spacy_pkuseg>=0.0.33"
+          cat > plugin/README.txt <<'TXT'
+          QuanSyn Studio parser runtime plugin.
+
+          Install by extracting this archive next to the QuanSyn Studio executable,
+          or import it from the Model Manager if your build supports runtime import.
+
+          This package contains parser runtime libraries only. Parser models should
+          be installed or imported separately.
+          TXT
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          root = Path("plugin/parser_runtime/site-packages").resolve()
+          sys.path.insert(0, str(root))
+          import spacy
+          import stanza
+          import spacy_pkuseg
+          print("parser_runtime_ok", spacy.__version__, stanza.__version__, spacy_pkuseg.__file__)
+          PY
+
+      - name: Package parser runtime plugin
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          (cd plugin && zip -r "../artifacts/QuanSyn-parser-runtime-${{ matrix.name }}.zip" .)
+
+      - name: Upload parser runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuanSyn-parser-runtime-${{ matrix.name }}
+          path: artifacts/QuanSyn-parser-runtime-${{ matrix.name }}.zip
+          if-no-files-found: error
+
+      - name: Upload parser runtime to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v0.0.1 >/dev/null 2>&1 || gh release create v0.0.1 --title "qsstudio0.0.1" --notes "QuanSyn Studio 0.0.1"
+          gh release upload v0.0.1 "artifacts/QuanSyn-parser-runtime-${{ matrix.name }}.zip" --clobber
