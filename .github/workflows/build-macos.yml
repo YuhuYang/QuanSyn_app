@@ -187,11 +187,38 @@ jobs:
       - name: Run dependency selftests
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           export QTWEBENGINE_DISABLE_SANDBOX=1
-          QUANSYN_SELFTEST=networkit "${{ steps.app.outputs.exe_path }}"
-          QUANSYN_SELFTEST=sklearn "${{ steps.app.outputs.exe_path }}"
-          cat "$(dirname "${{ steps.app.outputs.exe_path }}")/selftest.log" || true
+          QUANSYN_SELFTEST=networkit "${{ steps.app.outputs.exe_path }}" > selftest-networkit.log 2>&1
+          rc_networkit=$?
+          QUANSYN_SELFTEST=sklearn "${{ steps.app.outputs.exe_path }}" > selftest-sklearn.log 2>&1
+          rc_sklearn=$?
+          cat selftest-networkit.log || true
+          cat selftest-sklearn.log || true
+          cat "$(dirname "${{ steps.app.outputs.exe_path }}")/selftest.log" > selftest-app.log 2>/dev/null || true
+          cat selftest-app.log || true
+          if [[ "$rc_networkit" -ne 0 || "$rc_sklearn" -ne 0 ]]; then
+            exit 1
+          fi
+
+      - name: Upload app diagnostics to release on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts app-diagnostics
+          for f in build.log build-env.log selftest-networkit.log selftest-sklearn.log selftest-app.log nuitka-crash-report.xml; do
+            if [[ -f "$f" ]]; then
+              cp "$f" app-diagnostics/
+            fi
+          done
+          if [[ ! -f app-diagnostics/selftest-networkit.log ]]; then
+            echo "No selftest-networkit.log was produced." > app-diagnostics/selftest-networkit.log
+          fi
+          (cd app-diagnostics && zip -r "../artifacts/QuanSyn-app-diagnostics-${{ matrix.name }}-${{ github.run_id }}.zip" .)
+          gh release view v0.0.1 >/dev/null 2>&1 || gh release create v0.0.1 --title "qsstudio0.0.1" --notes "QuanSyn Studio 0.0.1"
+          gh release upload v0.0.1 "artifacts/QuanSyn-app-diagnostics-${{ matrix.name }}-${{ github.run_id }}.zip" --clobber
 
       - name: Package app bundle
         shell: bash
