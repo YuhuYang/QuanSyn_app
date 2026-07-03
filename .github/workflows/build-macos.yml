@@ -60,9 +60,15 @@ jobs:
           import PyQt6.QtWebEngineWidgets
           print("dependency_imports_ok", networkit.__version__, sklearn.__version__)
           PY
+          {
+            python --version
+            python -m nuitka --version
+            python -m pip freeze
+          } | tee build-env.log
 
       - name: Build app bundle
         run: |
+          set -o pipefail
           python -m nuitka run_desktop.py \
             --standalone \
             --macos-create-app-bundle \
@@ -110,7 +116,19 @@ jobs:
             --remove-output \
             --assume-yes-for-downloads \
             --lto=no \
-            --jobs=4
+            --jobs=4 \
+            2>&1 | tee build.log
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nuitka-build-logs-${{ matrix.name }}
+          path: |
+            build.log
+            build-env.log
+            nuitka-crash-report.xml
+          if-no-files-found: ignore
 
       - name: Locate app bundle
         id: app
