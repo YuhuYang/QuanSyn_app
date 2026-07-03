@@ -55,7 +55,7 @@ jobs:
         run: |
           conda install -y networkit scikit-learn numpy scipy pandas matplotlib
           python -m pip install -U pip
-          python -m pip install -U nuitka ordered-set zstandard wheel setuptools
+          python -m pip install -U nuitka ordered-set zstandard wheel setuptools protobuf
           grep -Ev '^(spacy|stanza|networkit|scikit-learn)([<>= ].*)?$' requirements-desktop.txt > requirements-macos-main.txt
           python -m pip install -r requirements-macos-main.txt
           python - <<'PY'
@@ -226,11 +226,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Miniforge
+        uses: conda-incubator/setup-miniconda@v3
         with:
+          miniforge-version: latest
+          activate-environment: qsstudio-parser-runtime
           python-version: "3.11"
-          cache: "pip"
+          channels: conda-forge
+          channel-priority: strict
 
       - name: Build parser runtime plugin
         run: |
