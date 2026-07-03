@@ -53,6 +53,13 @@ jobs:
           python -m pip install -U nuitka ordered-set zstandard wheel setuptools
           grep -Ev '^(spacy|stanza|networkit|scikit-learn)([<>= ].*)?$' requirements-desktop.txt > requirements-macos-main.txt
           python -m pip install -r requirements-macos-main.txt
+          python - <<'PY'
+          import networkit
+          import sklearn
+          import PyQt6
+          import PyQt6.QtWebEngineWidgets
+          print("dependency_imports_ok", networkit.__version__, sklearn.__version__)
+          PY
 
       - name: Build app bundle
         run: |
@@ -65,8 +72,6 @@ jobs:
             --include-package-data=qtawesome \
             --include-package-data=emoji \
             --include-package=networkit \
-            --include-package=networkit.gephi \
-            --include-package=networkit.profiling \
             --include-package=sklearn \
             --include-package=joblib \
             --include-package=threadpoolctl \
